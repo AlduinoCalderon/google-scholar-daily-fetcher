@@ -1,0 +1,38 @@
+{
+  "name": "google-scholar-api-server",
+  "version": "1.0.0",
+  "description": "Express server for fetching and storing Google Scholar data via SerpAPI",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "test": "jest",
+    "migrate": "node src/database/migrate.js"
+  },
+  "keywords": [
+    "google-scholar",
+    "serpapi",
+    "express",
+    "mysql",
+    "mvc"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "dotenv": "^16.3.1",
+    "mysql2": "^3.6.1",
+    "axios": "^1.5.0",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "express-rate-limit": "^7.0.1",
+    "morgan": "^1.10.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1",
+    "jest": "^29.7.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
