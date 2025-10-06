@@ -1,0 +1,130 @@
+name: Daily Article Fetcher
+
+on:
+  # Run every day at 2:00 AM UTC
+  schedule:
+    - cron: '0 2 * * *'
+  
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      authors:
+        description: 'Comma-separated list of 3 authors (optional, uses default if empty)'
+        required: false
+        default: ''
+
+jobs:
+  fetch-articles:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Wait for service to be ready
+        run: |
+          echo "Waiting for external services to be available..."
+          sleep 5
+
+      - name: Fetch articles from Google Scholar
+        env:
+          SERP_API_KEY: ${{ secrets.SERP_API_KEY }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_MAX_POOL_SIZE: 2
+          DB_MIN_IDLE: 0
+          PORT: 8080
+          NODE_ENV: production
+        run: |
+          # Start server in background
+          node src/server.js &
+          SERVER_PID=$!
+          
+          # Wait for server to start
+          echo "Waiting for server to start..."
+          sleep 10
+          
+          # Check if server is running
+          if ! ps -p $SERVER_PID > /dev/null; then
+            echo "❌ Server failed to start"
+            exit 1
+          fi
+          
+          # Set authors (use input if provided, otherwise use default)
+          if [ -n "${{ github.event.inputs.authors }}" ]; then
+            AUTHORS="${{ github.event.inputs.authors }}"
+          else
+            # Default: Rotate through different research areas each day
+            DAY_OF_WEEK=$(date +%u)
+            case $DAY_OF_WEEK in
+              1) AUTHORS="Geoffrey Hinton,Yann LeCun,Yoshua Bengio" ;;         # AI Pioneers
+              2) AUTHORS="Andrew Ng,Fei-Fei Li,Sebastian Thrun" ;;             # Modern AI
+              3) AUTHORS="Ian Goodfellow,Demis Hassabis,Ilya Sutskever" ;;     # Deep Learning
+              4) AUTHORS="Michael Jordan,Christopher Manning,Judea Pearl" ;;    # ML Theory
+              5) AUTHORS="Daphne Koller,Peter Norvig,Stuart Russell" ;;        # AI Research
+              6) AUTHORS="Jitendra Malik,Alexei Efros,Alyosha Efros" ;;        # Computer Vision
+              7) AUTHORS="Sergey Brin,Larry Page,Jeff Dean" ;;                 # Tech Leaders
+            esac
+          fi
+          
+          echo "📚 Fetching articles for: $AUTHORS"
+          
+          # URL encode the authors parameter
+          ENCODED_AUTHORS=$(echo "$AUTHORS" | sed 's/ /%20/g')
+          
+          # Call the API endpoint
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            "http://localhost:8080/api/authors/fetch-articles?authors=$ENCODED_AUTHORS")
+          
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          echo "HTTP Status: $HTTP_CODE"
+          echo "Response: $BODY"
+          
+          # Stop server
+          kill $SERVER_PID
+          
+          # Check if request was successful
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ Request failed with status $HTTP_CODE"
+            exit 1
+          fi
+          
+          # Parse and display results
+          echo "✅ Articles fetched successfully!"
+          echo "$BODY" | jq '.summary'
+          
+          # Save summary to file for artifacts
+          echo "$BODY" | jq '.' > fetch-results.json
+          
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fetch-results-${{ github.run_number }}
+          path: fetch-results.json
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "❌ Daily article fetch failed!"
+          echo "Check the logs above for details."
+
+      - name: Notify on success
+        if: success()
+        run: |
+          echo "✅ Daily article fetch completed successfully!"
